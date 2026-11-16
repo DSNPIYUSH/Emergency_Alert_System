@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: emergency-alert-system
+    env: docker
+    dockerfilePath: Dockerfile
+    plan: free
+    region: oregon
+    healthCheckPath: /api/public/stats
+    envVars:
+      - key: SPRING_PROFILES_ACTIVE
+        value: local
+      - key: PORT
+        value: 8080
+      - key: JWT_SECRET
+        generateValue: true
