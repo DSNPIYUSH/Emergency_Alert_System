@@ -1,0 +1,292 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  AWS Infrastructure for Emergency Alert System: VPC, Public/Private Subnets,
+  Application Load Balancer (ALB with WebSocket support), ECS Fargate/EC2, and RDS MySQL 8.0.
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Default: emergency-production
+    Description: Environment prefix for provisioned AWS resources.
+
+  DbUsername:
+    Type: String
+    Default: emergency_admin
+    Description: Master username for Amazon RDS MySQL.
+
+  DbPassword:
+    Type: String
+    NoEcho: true
+    MinLength: 8
+    Description: Master password for Amazon RDS MySQL (must be at least 8 characters).
+
+  JwtSecret:
+    Type: String
+    NoEcho: true
+    MinLength: 32
+    Description: 256-bit Secret Key for signing JWT authentication tokens.
+
+  AppContainerImage:
+    Type: String
+    Default: public.ecr.aws/docker/library/openjdk:21-slim
+    Description: Docker image URI in Amazon ECR or Docker Hub.
+
+Resources:
+  # ============================================================================
+  # 1. NETWORKING INFRASTRUCTURE (VPC, Subnets, Gateways)
+  # ============================================================================
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-vpc"
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-igw"
+
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  # Public Subnets (for ALB & Bastion)
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-public-az1"
+
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.2.0/24
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-public-az2"
+
+  # Private Subnets (for App & RDS MySQL)
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.11.0/24
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-private-az1"
+
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.12.0/24
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-private-az2"
+
+  # Route Table for Public Subnets
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-public-rt"
+
+  PublicDefaultRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  SubnetRouteTableAssoc1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet1
+      RouteTableId: !Ref PublicRouteTable
+
+  SubnetRouteTableAssoc2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet2
+      RouteTableId: !Ref PublicRouteTable
+
+  # ============================================================================
+  # 2. SECURITY GROUPS (Least Privilege Ingress)
+  # ============================================================================
+  # Load Balancer SG: Public ports 80 & 443
+  AlbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for Application Load Balancer
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-alb-sg"
+
+  # Application Tier SG: Only accessible from ALB on port 8080
+  AppSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for Spring Boot App containers/instances
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 8080
+          ToPort: 8080
+          SourceSecurityGroupId: !Ref AlbSecurityGroup
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-app-sg"
+
+  # Database SG: Port 3306 ONLY from Application Security Group
+  DatabaseSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for Amazon RDS MySQL instance
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          SourceSecurityGroupId: !Ref AppSecurityGroup
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-rds-sg"
+
+  # ============================================================================
+  # 3. AMAZON RDS MYSQL 8.0 DATABASE
+  # ============================================================================
+  DbSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Subnets for MySQL RDS Database
+      SubnetIds:
+        - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-db-subnet-group"
+
+  RdsMySQLInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBInstanceIdentifier: !Sub "${EnvironmentName}-mysql"
+      Engine: mysql
+      EngineVersion: '8.0'
+      DBInstanceClass: db.t3.micro
+      AllocatedStorage: '20'
+      StorageType: gp3
+      DBName: emergency_db
+      MasterUsername: !Ref DbUsername
+      MasterUserPassword: !Ref DbPassword
+      DBSubnetGroupName: !Ref DbSubnetGroup
+      VPCSecurityGroups:
+        - !Ref DatabaseSecurityGroup
+      MultiAZ: false
+      PubliclyAccessible: false
+      BackupRetentionPeriod: 7
+      StorageEncrypted: true
+      DeletionProtection: false
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-rds-mysql"
+
+  # ============================================================================
+  # 4. APPLICATION LOAD BALANCER (ALB) WITH WEBSOCKET SUPPORT
+  # ============================================================================
+  ApplicationLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub "${EnvironmentName}-alb"
+      Subnets:
+        - !Ref PublicSubnet1
+        - !Ref PublicSubnet2
+      SecurityGroups:
+        - !Ref AlbSecurityGroup
+      Scheme: internet-facing
+      Type: application
+
+  AlbTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub "${EnvironmentName}-tg"
+      Port: 8080
+      Protocol: HTTP
+      VpcId: !Ref VPC
+      TargetType: ip
+      HealthCheckIntervalSeconds: 30
+      HealthCheckPath: /api/public/stats
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+      TargetGroupAttributes:
+        # Enable cookie stickiness for continuous WebSocket / STOMP persistence
+        - Key: stickiness.enabled
+          Value: 'true'
+        - Key: stickiness.type
+          Value: lb_cookie
+        - Key: stickiness.lb_cookie.duration_seconds
+          Value: '86400'
+
+  AlbHttpListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref AlbTargetGroup
+
+  # ============================================================================
+  # 5. CLOUDWATCH LOGGING
+  # ============================================================================
+  AppLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/emergency-alert/${EnvironmentName}"
+      RetentionInDays: 30
+
+Outputs:
+  AlbDnsName:
+    Description: Public URL of the Emergency Alert System Load Balancer
+    Value: !GetAtt ApplicationLoadBalancer.DNSName
+
+  RdsEndpoint:
+    Description: Endpoint address of RDS MySQL database
+    Value: !GetAtt RdsMySQLInstance.Endpoint.Address
+
+  RdsPort:
+    Description: Port of RDS MySQL database
+    Value: !GetAtt RdsMySQLInstance.Endpoint.Port

@@ -1,0 +1,50 @@
+# Compiled class files
+**/target/
+*.class
+
+# Log files
+*.log
+logs/
+
+# BlueJ files
+*.ctxt
+
+# Mobile Tools for Java (J2ME)
+.mtj.tmp/
+
+# Package Files
+*.jar
+*.war
+*.nar
+*.ear
+*.zip
+*.tar.gz
+*.rar
+
+# Local databases and temporary files
+*.mv.db
+*.trace.db
+emergency_local_db*
+.env
+.env.local
+
+# Virtual machine crash logs
+hs_err_pid*
+replay_pid*
+
+# IDE and Editor Files
+.idea/
+*.iml
+.vscode/
+*.ipr
+*.iws
+.project
+.classpath
+.settings/
+*.sublime-project
+*.sublime-workspace
+
+# OS Generated Files
+.DS_Store
+Thumbs.db
+desktop.ini

@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Emergency Alert System (EAS) - AWS Cloud Edition</title>
+    <link rel="stylesheet" href="/css/styles.css">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚨</text></svg>">
+</head>
+<body>
+
+    <!-- ====================================================================
+         PROMINENT SAFETY DISCLAIMER: Clear distinction from official systems
+         ==================================================================== -->
+    <header class="disclaimer-banner">
+        <span class="badge">SIMULATION / LAB DEMO</span>
+        <span>⚠️ FOR RESEARCH & DEMO PURPOSES ONLY. This system is NOT connected to official government emergency services (EAS, WEA, 911, FEMA, NDMA).</span>
+    </header>
+
+    <!-- App Navigation Header -->
+    <nav class="app-header">
+        <div class="brand-section">
+            <div class="brand-logo">🚨</div>
+            <div>
+                <div class="brand-title">
+                    Emergency Alert System
+                    <span class="tag">AWS HOSTED</span>
+                </div>
+                <div class="brand-sub">Real-Time Multi-Hazard Notification Network</div>
+            </div>
+        </div>
+
+        <div class="nav-actions">
+            <!-- WebSocket Connection State -->
+            <div class="ws-status-badge">
+                <span class="status-dot" id="ws-status-dot"></span>
+                <span id="ws-status-text">Connecting...</span>
+            </div>
+
+            <!-- Audio Siren / Chime Toggle -->
+            <button class="btn btn-icon btn-sm" id="audio-toggle-btn" title="Toggle alert chime and siren audio">
+                🔊 Audio Active
+            </button>
+
+            <!-- Authentication User Profile / Login Buttons -->
+            <div id="auth-nav-section" style="display: flex; gap: 8px;">
+                <!-- Injected dynamically by app.js -->
+            </div>
+        </div>
+    </nav>
+
+    <main class="container">
+
+        <!-- Critical / High Urgency Live Flash Banner -->
+        <section id="urgent-broadcast-banner" class="urgent-broadcast-banner">
+            <div class="urgent-broadcast-header">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <span class="urgent-tag">CRITICAL ALERT IN PROGRESS</span>
+                    <strong id="urgent-banner-title" style="font-size: 1.1rem; color: #fff;">Wildfire Threat</strong>
+                </div>
+                <button class="btn btn-sm btn-secondary" onclick="dismissUrgentBanner()" title="Dismiss Banner">✕</button>
+            </div>
+            <p id="urgent-banner-desc" style="font-size: 0.95rem; color: #fee2e2;"></p>
+            <div style="background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 4px; font-size: 0.85rem;">
+                <strong>📍 Target Area:</strong> <span id="urgent-banner-location"></span><br>
+                <strong>⚡ Required Action:</strong> <span id="urgent-banner-action" style="color: #fca5a5;"></span>
+            </div>
+        </section>
+
+        <!-- Navigation Tabs -->
+        <div class="tabs-nav">
+            <button class="tab-btn active" data-tab="feed">
+                📡 Live Incident Feed
+            </button>
+            <button class="tab-btn" data-tab="subscriptions">
+                🔔 Category Subscriptions
+            </button>
+            <button class="tab-btn" id="tab-btn-admin" data-tab="admin" style="display: none;">
+                🛡️ Admin Command Center
+            </button>
+            <button class="tab-btn" data-tab="history">
+                📜 Alert Archive & Search
+            </button>
+        </div>
+
+        <!-- ================================================================
+             TAB 1: LIVE INCIDENT FEED
+             ================================================================ -->
+        <section id="tab-feed" class="tab-content">
+            <div class="card" style="margin-bottom: 20px;">
+                <div class="card-title">
+                    <span>🔴 Live Broadcasts</span>
+                    <button class="btn btn-secondary btn-sm" onclick="loadActiveAlerts()">↻ Refresh</button>
+                </div>
+                <p style="color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 16px;">
+                    Real-time emergency bulletins dispatched via Spring Boot WebSockets (STOMP broker). Audible sirens trigger automatically for Critical and High incidents.
+                </p>
+                <div id="alerts-feed-container" class="alerts-feed">
+                    <!-- Populated dynamically by user.js & websocket.js -->
+                </div>
+            </div>
+        </section>
+
+        <!-- ================================================================
+             TAB 2: CATEGORY-BASED SUBSCRIPTIONS
+             ================================================================ -->
+        <section id="tab-subscriptions" class="tab-content" style="display: none;">
+            <div class="card">
+                <div class="card-title">
+                    <span>🔔 Hazard Category Subscriptions</span>
+                    <button class="btn btn-primary btn-sm" onclick="saveSubscriptions()">Save Preferences</button>
+                </div>
+                <p style="color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 20px;">
+                    Select the emergency categories you wish to monitor. The system filters real-time WebSocket push notifications based on your verified subscription profile stored in MySQL.
+                </p>
+
+                <div class="subscriptions-grid">
+                    <!-- FIRE -->
+                    <div class="subscription-card" style="border-left: 4px solid var(--color-fire);">
+                        <div class="subscription-info">
+                            <h4 style="color: var(--color-fire);">🔥 Wildfire & Structural Fire</h4>
+                            <p>Forest fires, brushfires, urban structural blazes, evacuation alerts.</p>
+                        </div>
+                        <label class="switch">
+                            <input type="checkbox" id="sub-fire" checked>
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+
+                    <!-- FLOOD -->
+                    <div class="subscription-card" style="border-left: 4px solid var(--color-flood);">
+                        <div class="subscription-info">
+                            <h4 style="color: var(--color-flood);">🌊 Flood & Hydrological</h4>
+                            <p>Flash flood warnings, river cresting, storm surges, dam failure notices.</p>
+                        </div>
+                        <label class="switch">
+                            <input type="checkbox" id="sub-flood" checked>
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+
+                    <!-- EARTHQUAKE -->
+                    <div class="subscription-card" style="border-left: 4px solid var(--color-earthquake);">
+                        <div class="subscription-info">
+                            <h4 style="color: var(--color-earthquake);">🌋 Earthquake & Seismic</h4>
+                            <p>Fault line tremors, seismic shaking, aftershock advisories, tsunami warnings.</p>
+                        </div>
+                        <label class="switch">
+                            <input type="checkbox" id="sub-earthquake" checked>
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+
+                    <!-- SECURITY -->
+                    <div class="subscription-card" style="border-left: 4px solid var(--color-security);">
+                        <div class="subscription-info">
+                            <h4 style="color: var(--color-security);">🛡️ Civil Security & Safety</h4>
+                            <p>Hazardous material spills, security lockdowns, perimeter containment advisories.</p>
+                        </div>
+                        <label class="switch">
+                            <input type="checkbox" id="sub-security" checked>
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                </div>
+
+                <div style="margin-top: 24px; text-align: right;">
+                    <button class="btn btn-primary" onclick="saveSubscriptions()">💾 Save Category Preferences</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- ================================================================
+             TAB 3: ADMIN COMMAND CENTER (ROLE_ADMIN)
+             ================================================================ -->
+        <section id="tab-admin" class="tab-content" style="display: none;">
+            <!-- Real-time Metrics Counters -->
+            <div class="metrics-row">
+                <div class="metric-card">
+                    <div class="metric-value" id="stat-active-alerts">0</div>
+                    <div class="metric-label">Active Alerts</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value" id="stat-total-alerts">0</div>
+                    <div class="metric-label">Total Dispatched</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value" id="stat-total-users">0</div>
+                    <div class="metric-label">Registered Users</div>
+                </div>
+            </div>
+
+            <!-- Subscriptions Breakdown -->
+            <div class="card" style="margin-bottom: 24px;">
+                <h4 style="font-size: 0.95rem; margin-bottom: 10px; color: var(--text-secondary);">Subscribers by Hazard Category</h4>
+                <div id="stat-categories-breakdown" style="display: flex; gap: 12px; flex-wrap: wrap;"></div>
+            </div>
+
+            <div class="grid-2">
+                <!-- Emergency Broadcast Creation Form -->
+                <div class="card">
+                    <div class="card-title">
+                        <span>📢 Dispatch New Emergency Broadcast</span>
+                    </div>
+                    <form id="broadcast-form" onsubmit="broadcastAlert(event)">
+                        <div class="form-group">
+                            <label class="form-label">Alert Headline / Title *</label>
+                            <input type="text" id="admin-title" class="form-control" placeholder="e.g. Flash Flood Warning - Valley Basin" required>
+                        </div>
+
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                            <div class="form-group">
+                                <label class="form-label">Hazard Category *</label>
+                                <select id="admin-category" class="form-control" required>
+                                    <option value="FIRE">🔥 FIRE</option>
+                                    <option value="FLOOD">🌊 FLOOD</option>
+                                    <option value="EARTHQUAKE">🌋 EARTHQUAKE</option>
+                                    <option value="SECURITY">🛡️ SECURITY</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Severity Level *</label>
+                                <select id="admin-severity" class="form-control" required>
+                                    <option value="CRITICAL">🔴 CRITICAL (Evacuate / Immediate)</option>
+                                    <option value="HIGH" selected>🟠 HIGH (Take Shelter)</option>
+                                    <option value="MEDIUM">🟡 MEDIUM (Precautionary)</option>
+                                    <option value="LOW">🔵 LOW (Advisory / Resolved)</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 12px;">
+                            <div class="form-group">
+                                <label class="form-label">Target Location / Coordinates *</label>
+                                <input type="text" id="admin-location" class="form-control" placeholder="e.g. North Ridge Canyon, Sector 4" required>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Valid (Minutes)</label>
+                                <input type="number" id="admin-duration" class="form-control" value="120" min="5" max="10080">
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label">Incident Description *</label>
+                            <textarea id="admin-description" class="form-control" rows="3" placeholder="Describe the active hazard conditions..." required></textarea>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label">Protective Action Instructions *</label>
+                            <textarea id="admin-instructions" class="form-control" rows="2" placeholder="e.g. Evacuate immediately. Proceed south via Highway 101." required></textarea>
+                        </div>
+
+                        <button type="submit" class="btn btn-primary" style="width: 100%;">
+                            🚨 Authorize & Broadcast Alert Over WebSocket
+                        </button>
+                    </form>
+                </div>
+
+                <!-- Active Incident Management Table -->
+                <div class="card">
+                    <div class="card-title">
+                        <span>📋 Active & Historical Alert Manager</span>
+                        <button class="btn btn-secondary btn-sm" onclick="loadAdminAlertsTable()">↻ Refresh</button>
+                    </div>
+                    <div style="overflow-x: auto;">
+                        <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem; text-align: left;">
+                            <thead>
+                                <tr style="border-bottom: 2px solid var(--border-color); color: var(--text-secondary);">
+                                    <th style="padding: 8px;">ID</th>
+                                    <th style="padding: 8px;">Category</th>
+                                    <th style="padding: 8px;">Severity</th>
+                                    <th style="padding: 8px;">Details</th>
+                                    <th style="padding: 8px;">Status</th>
+                                    <th style="padding: 8px;">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="admin-alerts-table-body">
+                                <!-- Populated dynamically -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ================================================================
+             TAB 4: ALERT ARCHIVE & SEARCH
+             ================================================================ -->
+        <section id="tab-history" class="tab-content" style="display: none;">
+            <div class="card">
+                <div class="card-title">
+                    <span>📜 Emergency Alert Archive</span>
+                </div>
+                <!-- Filters -->
+                <div style="display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap;">
+                    <div style="flex: 1; min-width: 200px;">
+                        <input type="text" id="history-search-input" class="form-control" placeholder="Search by title, location, or keyword..." oninput="loadHistoryAlerts()">
+                    </div>
+                    <div style="width: 180px;">
+                        <select id="history-filter-category" class="form-control" onchange="loadHistoryAlerts()">
+                            <option value="ALL">All Categories</option>
+                            <option value="FIRE">🔥 FIRE</option>
+                            <option value="FLOOD">🌊 FLOOD</option>
+                            <option value="EARTHQUAKE">🌋 EARTHQUAKE</option>
+                            <option value="SECURITY">🛡️ SECURITY</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div id="history-feed-container" class="alerts-feed">
+                    <!-- Populated dynamically -->
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- ====================================================================
+         AUTHENTICATION MODAL (Login & Register)
+         ==================================================================== -->
+    <div id="auth-modal" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title" id="auth-modal-title">Authentication</h3>
+                <button class="close-btn" onclick="closeAuthModal()">&times;</button>
+            </div>
+
+            <!-- LOGIN FORM -->
+            <div id="login-form-container">
+                <form onsubmit="handleLogin(event)">
+                    <div class="form-group">
+                        <label class="form-label">Username or Email</label>
+                        <input type="text" id="login-username" class="form-control" placeholder="admin or citizen" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Password</label>
+                        <input type="password" id="login-password" class="form-control" placeholder="••••••••" required>
+                    </div>
+                    <div style="background: rgba(255,255,255,0.05); padding: 10px; border-radius: 6px; font-size: 0.8rem; margin-bottom: 16px;">
+                        <strong>Demo Accounts:</strong><br>
+                        • Admin: <code>admin</code> / <code>Admin@12345</code><br>
+                        • Citizen: <code>citizen</code> / <code>User@12345</code>
+                    </div>
+                    <button type="submit" class="btn btn-primary" style="width: 100%; margin-bottom: 12px;">Sign In</button>
+                    <div style="text-align: center; font-size: 0.85rem;">
+                        Don't have an account? <a href="#" onclick="openAuthModal('register')" style="color: #38bdf8;">Register here</a>
+                    </div>
+                </form>
+            </div>
+
+            <!-- REGISTER FORM -->
+            <div id="register-form-container" style="display: none;">
+                <form onsubmit="handleRegister(event)">
+                    <div class="form-group">
+                        <label class="form-label">Username *</label>
+                        <input type="text" id="reg-username" class="form-control" placeholder="john_doe" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Email Address *</label>
+                        <input type="email" id="reg-email" class="form-control" placeholder="john@example.com" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Full Name *</label>
+                        <input type="text" id="reg-fullname" class="form-control" placeholder="John Doe" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Password * (Min 6 characters)</label>
+                        <input type="password" id="reg-password" class="form-control" placeholder="••••••••" minlength="6" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Phone Number (Optional)</label>
+                        <input type="tel" id="reg-phone" class="form-control" placeholder="+1 (555) 000-0000">
+                    </div>
+                    <button type="submit" class="btn btn-primary" style="width: 100%; margin-bottom: 12px;">Complete Registration</button>
+                    <div style="text-align: center; font-size: 0.85rem;">
+                        Already registered? <a href="#" onclick="openAuthModal('login')" style="color: #38bdf8;">Sign in here</a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notification Container -->
+    <div id="toast-container"></div>
+
+    <!-- Footer -->
+    <footer>
+        <p><strong>Emergency Alert System (EAS)</strong> — Built with Java Spring Boot, MySQL, WebSockets, HTML5, CSS3 & JavaScript.</p>
+        <p style="margin-top: 4px; font-size: 0.75rem; color: var(--text-muted);">
+            ⚠️ Simulation Notice: Designed strictly for educational labs, testing, and cloud architecture demonstrations. Not affiliated with official emergency warning bodies.
+        </p>
+    </footer>
+
+    <!-- Scripts -->
+    <script src="/js/sound.js"></script>
+    <script src="/js/websocket.js"></script>
+    <script src="/js/user.js"></script>
+    <script src="/js/admin.js"></script>
+    <script src="/js/app.js"></script>
+</body>
+</html>
